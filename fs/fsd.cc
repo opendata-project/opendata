@@ -6,11 +6,21 @@
 */
 
 
+#include <iostream>
+#include <fstream>
 #include "cfs_fuse.h"
+#include "cfs.h"
 
 
-int main(int argc, char *argv[])
-{
+extern Cfs g_cfs_instance;
+
+int main(int argc, char *argv[]) {
+
+    //std::ofstream fout("/opt/tmp/log.txt");
+    //std::streambuf *sout = std::cout.rdbuf(fout.rdbuf());
+    
+
+    //g_cfs_instance.CfsRead();
     
     int ret =  cfs_fuse_mainloop(argc, argv);
 
@@ -19,6 +29,8 @@ int main(int argc, char *argv[])
     //cfs_cifs_mainloop(argc, argv);
     //cfs_s3gw_mainloop(argc, argv);
 
-    return ret;
+    //fout.close();
+    return 0;
 
 }
+

@@ -2,7 +2,8 @@
  *cluster file system interface integrated with FUSE
 */
 
-#ifndef CFS_FUSE_H_
+#ifndef FS_CFS_FUSE_H_
+#define FS_CFS_FUSE_H_
 
 #ifdef __cplusplus
 extern "C" {
@@ -114,12 +115,25 @@ static void cfs_fuse_lseek (fuse_req_t req, fuse_ino_t ino, off_t off, int whenc
 		       struct fuse_file_info *fi);
 
 
+/*
+* some test function
+*/
+
+void cfs_fuse_lookup_test(fuse_req_t req, fuse_ino_t parent, const char *name);
+void cfs_fuse_getattr_test(fuse_req_t req, fuse_ino_t ino,
+			     struct fuse_file_info *fi);
+void cfs_fuse_readdir_test(fuse_req_t req, fuse_ino_t ino, size_t size,
+			     off_t off, struct fuse_file_info *fi);
+/*
+* test function finish
+*/
+
 static const struct fuse_lowlevel_ops cfs_fuse_oper = {
     .init       = NULL,
     .destroy    = NULL,
-    .lookup     = cfs_fuse_lookup,
+    .lookup     = cfs_fuse_lookup_test,
     .forget     = NULL,
-    .getattr    = cfs_fuse_getattr,
+    .getattr    = cfs_fuse_getattr_test,
     .setattr    = NULL,
     .readlink   = NULL,
     .mknod      = NULL,
@@ -136,7 +150,7 @@ static const struct fuse_lowlevel_ops cfs_fuse_oper = {
     .release    = NULL,
     .fsync      = NULL,
     .opendir    = NULL,
-	.readdir	= cfs_fuse_readdir,
+	.readdir	= cfs_fuse_readdir_test,
     .releasedir = NULL,
     .fsyncdir   = NULL,
     .statfs     = NULL,
@@ -174,4 +188,4 @@ int cfs_fuse_mainloop(int argc, char *argv[]);
 }
 #endif
 
-#endif  //CFS_FUSE_H_
+#endif  //FS_CFS_FUSE_H_
