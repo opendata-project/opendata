@@ -38,11 +38,11 @@ int main(int argc, char *argv[]) {
 	assert(s.ok());
  
 	//Put key-value
-	s = db->Put(WriteOptions(),"key1","value");
+	s = db->Put(WriteOptions(),"key1","value1");
 	assert(s.ok());
 
 	uint64_t ino = 10;
-	s = db->Put(WriteOptions(), Slice((char*)&ino, sizeof(ino)), "value");
+	s = db->Put(WriteOptions(), Slice((char*)&ino, sizeof(ino)), "value2");
 	assert(s.ok());
  
 	std::string value;
@@ -56,18 +56,30 @@ int main(int argc, char *argv[]) {
 	assert(s.ok());
 	std::cout << ino << std::endl << tmp1 << std::endl;
 
-	struct _st {
-		char b[20];
-	} _internal;
-	memset(&_internal, 0, sizeof(_internal));
-    std::string tmp;
-    s = db->Get(ReadOptions(), Slice("key1"), &tmp);
-    if (s.ok()) {
-        memcpy(&_internal, tmp.data(), sizeof(char) * tmp.size());
-    } else {
-        std::cout << s.ToString() << std::endl;
-    }
-    std::cout << (char*)&_internal << std::endl;
+	s = db->Put(WriteOptions(), "key21", "value21");
+	assert(s.ok());
+
+	s = db->Put(WriteOptions(), "key22", "value22");
+	assert(s.ok());
+
+	s = db->Put(WriteOptions(), "key23", "value23");
+	assert(s.ok());
+
+	s = db->Put(WriteOptions(), "key4", "value4");
+	assert(s.ok());
+
+	s = db->Get(ReadOptions(), Slice("key21", strlen("key21")), &tmp1);
+	assert(s.ok());
+	std::cout << "wwwkey21:" << tmp1 << std::endl;
+
+	rocksdb::Iterator *iter = db->NewIterator(ReadOptions());
+	iter->Seek(Slice("key5", sizeof("key5")));
+	while (iter->Valid()) {
+		std::cout << "enter here:" << std::endl;
+		std::cout << iter->key().ToString() << "-:-" << iter->value().ToString() << std::endl;
+		iter->Next();
+	}
+
 
     //fout.close();
     return 0;

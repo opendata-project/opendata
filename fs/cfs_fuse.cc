@@ -6,11 +6,10 @@
 #include "cfs.h"
 
 #include "fuse_kernel.h"
+#include "fuse_i.h"
 
 
 extern Cfs g_cfs_instance;
-
-#define CFS_EOF -1
 
 
 static const char *hello_str = "Hello World!\n";		//just for demo
@@ -141,12 +140,25 @@ static int reply_buf_limited(fuse_req_t req, const char *buf, size_t bufsize,
 		return fuse_reply_buf(req, NULL, 0);
 }
 
-size_t fill_fuse_direntry(fuse_req_t req, char *buf, size_t bufsize, 
-					std::vector<struct DirEntry*> *dentries, 
-					std::vector<struct InodeAttr*> *inodes) {
-	//if bufsize is not enough, should realloc buf.
-	//off inside DirEntry be -1;
-	return 0;
+static size_t fill_fuse_direntry(fuse_req_t req, char *buf, size_t bufsize, 
+					std::vector<struct DirEntry*> *dentries) {
+	//TODO： if bufsize is not enough, should realloc buf.
+	//TODO： off inside DirEntry be -1;
+	struct stat stbuf = {0};
+	int size = 0;
+	for (int i = 0; i < dentries->size(); i++) {
+		size = fuse_add_direntry(req, NULL, 0, (*dentries)[i]->name, NULL, 0);	//just get size of entry
+		assert(bufsize > size);
+		if (bufsize < size) {
+			//TODO: realloc a big size of buf;
+		}
+		stbuf.st_ino = (*dentries)[i]->ino;
+		stbuf.st_mode = 0; 														//equal fuse kernel DT_UNKOWN=0
+		fuse_add_direntry(req, buf, bufsize, (*dentries)[i]->name, &stbuf, CFS_EOF);
+		buf += size;
+		bufsize -= size;
+	}
+	return bufsize;
 }
 
 void cfs_fuse_readdir(fuse_req_t req, fuse_ino_t ino, size_t size,
@@ -160,16 +172,83 @@ void cfs_fuse_readdir(fuse_req_t req, fuse_ino_t ino, size_t size,
 	//buf for simplicity now we just support one full readdir
 	std::vector<struct DirEntry *> dentries;
 	std::vector<struct InodeAttr *> inodes;
-	int ret = g_cfs_instance.CfsReaddir(ino, off, &dentries, &inodes);
+	int ret = g_cfs_instance.CfsReaddir(ino, off, &dentries, &inodes, false);
 	if (ret == RET_OK) {
 		size_t bufsize = dentries.size() * (sizeof(struct fuse_dirent) + FS_AVG_FILENAME_LEN);
 		char * buf = (char*)malloc(bufsize);
-		size_t buf_reallen = fill_fuse_direntry(req, buf, bufsize, &dentries, &inodes);
-		fuse_reply_buf(req, buf, buf_reallen);
+		size_t buf_left = fill_fuse_direntry(req, buf, bufsize, &dentries);
+		fuse_reply_buf(req, buf, bufsize - buf_left);
 	} else {
 		//dome some error handling;
 	}
+
+	//free dentries and inodes memory
+	for (int i = 0; i < dentries.size(); i++) {
+		delete dentries[i];
+	}
+	for (int i = 0; i < inodes.size(); i++) {
+
+		delete inodes[i];
+	}
 }
+
+static size_t fill_fuse_direntry_plus(fuse_req_t req, char *buf, size_t bufsize, 
+					std::vector<struct DirEntry*> *dentries, 
+					std::vector<struct InodeAttr*> *inodes) {
+	//TODO： if bufsize is not enough, should realloc buf.
+	//TODO： off inside DirEntry be -1;
+	int size = 0;
+	for (int i = 0; i < dentries->size(); i++) {
+		size = fuse_add_direntry_plus(req, NULL, 0, (*dentries)[i]->name, NULL, 0);	//just get size of entry
+		assert(bufsize > size);
+		if (bufsize < size) {
+			//TODO: realloc a big size of buf;
+		}
+		
+		struct fuse_entry_param entryparam = {0};
+		inoattr_to_stat((*inodes)[i], &entryparam.attr);
+		entryparam.ino = (*dentries)[i]->ino;
+		entryparam.generation = 0;
+		entryparam.attr_timeout = 1.0;
+		entryparam.entry_timeout = 1.0;
+		fuse_add_direntry_plus(req, buf, bufsize, (*dentries)[i]->name, &entryparam, CFS_EOF);
+		buf += size;
+		bufsize -= size;
+	}
+	return bufsize;
+}
+
+void cfs_fuse_readdirplus (fuse_req_t req, fuse_ino_t ino, size_t size, off_t off,
+			 struct fuse_file_info *fi) {
+
+	if (off == CFS_EOF) {
+		fuse_reply_buf(req, NULL, 0);		//means EOF of directory
+		return;
+	}
+
+	//TODO: actually we need support partial readdir
+	//buf for simplicity now we just support one full readdir
+	std::vector<struct DirEntry *> dentries;
+	std::vector<struct InodeAttr *> inodes;
+	int ret = g_cfs_instance.CfsReaddir(ino, off, &dentries, &inodes, true);
+	if (ret == RET_OK) {
+		size_t bufsize = dentries.size() * (sizeof(struct fuse_direntplus) + FS_AVG_FILENAME_LEN);
+		char * buf = (char*)malloc(bufsize);
+		size_t buf_left = fill_fuse_direntry_plus(req, buf, bufsize, &dentries, &inodes);
+		fuse_reply_buf(req, buf, bufsize - buf_left);
+	} else {
+		//dome some error handling;
+	}
+
+	//free dentries and inodes
+	for (int i = 0; i < dentries.size(); i++) {
+		delete dentries[i];
+	}
+	for (int i = 0; i < inodes.size(); i++) {
+		delete inodes[i];
+	}
+}
+
 
 void cfs_fuse_readdir_test(fuse_req_t req, fuse_ino_t ino, size_t size,
 			     off_t off, struct fuse_file_info *fi) {
@@ -189,7 +268,50 @@ void cfs_fuse_readdir_test(fuse_req_t req, fuse_ino_t ino, size_t size,
 	}
 }
 
+
+//fuse create and open file
+void cfs_fuse_create (fuse_req_t req, fuse_ino_t parent, const char *name,
+			mode_t mode, struct fuse_file_info *fi) {
+
+	struct InodeAttr inoattr = {0};
+	inoattr.uid = fuse_req_ctx(req)->uid;
+	inoattr.gid = fuse_req_ctx(req)->gid;
+    //inoattr.ino = ?;
+    inoattr.pino = parent;
+	inoattr.mode = mode;
+    inoattr.nlink = (S_ISDIR(mode) ? 2 : 1);	
+	inoattr.size = (S_ISDIR(mode) ? 4096 : 0);
+	struct timespec curtime;
+    clock_gettime(CLOCK_REALTIME, &curtime);
+    inoattr.atime = curtime;
+    inoattr.ctime = curtime;
+    inoattr.mtime = curtime;
+
+	int ret = g_cfs_instance.CfsCreate(parent, name, mode, &inoattr);
+	if (ret != RET_OK) {
+		//print some error
+	}
+
+	
+	ret = g_cfs_instance.CfsOpen(inoattr.ino, fi->flags, &fi->fh);
+	if (ret != RET_OK) {
+		//print some error
+	}
+}
+
+//fuse only create file(/dev)
+void cfs_fuse_mknod (fuse_req_t req, fuse_ino_t parent, const char *name,
+		       mode_t mode, dev_t rdev) {
+	
+}
+
+//fuse only open file
 void cfs_fuse_open(fuse_req_t req, fuse_ino_t ino,
+			  struct fuse_file_info *fi) {
+	
+}
+
+void cfs_fuse_open_test(fuse_req_t req, fuse_ino_t ino,
 			  struct fuse_file_info *fi) {
 	if (ino != 2)
 		fuse_reply_err(req, EISDIR);

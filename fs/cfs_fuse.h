@@ -32,7 +32,7 @@ void cfs_fuse_getattr(fuse_req_t req, fuse_ino_t ino,
 static void cfs_fuse_setattr (fuse_req_t req, fuse_ino_t ino, struct stat *attr,
 			 int to_set, struct fuse_file_info *fi);
 static void cfs_fuse_readlink (fuse_req_t req, fuse_ino_t ino);
-static void cfs_fuse_mknod (fuse_req_t req, fuse_ino_t parent, const char *name,
+void cfs_fuse_mknod (fuse_req_t req, fuse_ino_t parent, const char *name,
 		       mode_t mode, dev_t rdev);
 static void cfs_fuse_mkdir (fuse_req_t req, fuse_ino_t parent, const char *name,
 		       mode_t mode);
@@ -73,7 +73,7 @@ static void cfs_fuse_getxattr (fuse_req_t req, fuse_ino_t ino, const char *name,
 static void cfs_fuse_listxattr (fuse_req_t req, fuse_ino_t ino, size_t size);
 static void cfs_fuse_removexattr (fuse_req_t req, fuse_ino_t ino, const char *name);
 static void cfs_fuse_access (fuse_req_t req, fuse_ino_t ino, int mask);
-static void cfs_fuse_create (fuse_req_t req, fuse_ino_t parent, const char *name,
+void cfs_fuse_create (fuse_req_t req, fuse_ino_t parent, const char *name,
 			mode_t mode, struct fuse_file_info *fi);
 static void cfs_fuse_getlk (fuse_req_t req, fuse_ino_t ino,
 		       struct fuse_file_info *fi, struct flock *lock);
