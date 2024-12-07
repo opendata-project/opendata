@@ -9,18 +9,21 @@
 #include <iostream>
 #include <fstream>
 #include "cfs_fuse.h"
+#include "../util/log.h"
 #include "cfs.h"
-
 
 extern Cfs g_cfs_instance;
 
+
 int main(int argc, char *argv[]) {
 
-    //std::ofstream fout("/opt/tmp/log.txt");
-    //std::streambuf *sout = std::cout.rdbuf(fout.rdbuf());
+	system("rm -rf /opt/cfs_meta_data/fsmeta_rocksdb");
+    system("rm -rf /opt/cfs_meta_data/datastore/");
+	system("rm -rf /opt/cfs_meta_data/test*.log*");
     
-
-    //g_cfs_instance.CfsRead();
+    InitLogUtil();
+    g_cfs_instance.Init();
+    SPDLOG_DEBUG("fsd init finish.!");
     
     int ret =  cfs_fuse_mainloop(argc, argv);
 

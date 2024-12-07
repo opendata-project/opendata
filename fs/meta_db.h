@@ -17,7 +17,7 @@
 #define SEQ_LOWWER_STRIDE     2000
 #define SEQ_ID_BEGIN_         2
 
-#define MAX_DENTRY_KEY_LEN      FS_MAX_FILENAME_LEN + sizeof(uint64_t)
+#define MAX_DENTRY_KEY_LEN      CFS_MAX_FILENAME_LEN + sizeof(uint64_t)
 
 
 using rocksdb::DB;
@@ -82,6 +82,7 @@ public:
     //TODO: actually here should not appear file semantic
     //TODO: leave for future to decouple it.
     int GetInodeAttr(uint64_t ino, struct InodeAttr *inoattr);
+    int SetInodeAttr(uint64_t ino, struct InodeAttr *inoattr);
     int Lookup(uint64_t parent, const char *name, uint64_t *inode, struct InodeAttr *inoattr);
     int Readdir(uint64_t pino, int off, std::vector<struct DirEntry*> *dentries, 
                     std::vector<struct InodeAttr*> *inodes, bool readdirplus);
@@ -95,6 +96,8 @@ private:
     //encode  dentry key and value
     void EncodeDentryKey(uint64_t parent, const char *name, char *keybuf, int *keylen);
     void DecodeDentryKey(char *keybuf, int keylen, uint64_t *pino, char *name);
+
+    void CompareAndUpdateAttr(struct InodeAttr *newattr, struct InodeAttr *oldattr);
 
 private:
     Options options_;

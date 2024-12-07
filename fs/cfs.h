@@ -4,20 +4,16 @@
 */
 
 
-#ifndef FS_CFS_H_
-#define FS_CFS_H_
+#ifndef CFS_H_
+#define CFS_H_
 
 #include <stdint.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include "meta.h"
+#include "data.h"
 
-#define FS_MAX_FILENAME_LEN 255     //max file name string len : 255
-#define FS_AVG_FILENAME_LEN 32
 
-#define CFS_EOF -1
-
-#define IS_INO_MARKDEL(status)     ((status) & 0x00000001)
 
 struct InodeAttr {
     uint64_t ino;
@@ -42,13 +38,23 @@ struct DirEntry {
 	char name[];
 };
 
+struct FileHandle {
+    union {
+        uint64_t file_handle;
+        char file_cookie[56];
+    };
+};
 
 struct CtxFile {
     uint64_t ino;
     uint32_t flag;
     uint32_t mode;
     uint32_t refcnt;
+    uint32_t uid;
+    uint32_t gid;
 };
+
+
 
 class Cfs {
 public:
@@ -61,12 +67,17 @@ private:
     /* fist iteration with single process for simplicity, 
     later will have dedicated metadata server */
     Meta meta_;
-    std::map<uint64_t, struct CtxFile*> ctx_files_;
+    std::map<uint64_t, struct CtxFile*> ctx_files_;         //TODO: key should be change to struct FileHandle;
     typedef std::map<uint64_t, struct CtxFile*> MapCtxFiles_t;
+
+    Data data_;
+
 
 public:
     int CfsGetattr(uint64_t ino, struct InodeAttr *inoattr);
-    void CfsRead(/*args*/);
+    int CfsSetattr(uint64_t ino, struct InodeAttr *inoattr, int setmask, struct InodeAttr *new_inoattr);
+    int CfsRead(uint64_t ino, uint64_t fh, int size, uint64_t off, char *buf);
+    int CfsWrite(uint64_t ino, uint64_t fh, int size, uint64_t off, char *buf);
     int CfsReaddir(uint64_t pino, int off, std::vector<struct DirEntry*> *dentries, 
                     std::vector<struct InodeAttr*> *inodes, bool readdirplus);
     int CfsLookup(uint64_t parent, const char *name, uint64_t *inode, struct InodeAttr *inoattr);
@@ -77,14 +88,6 @@ public:
 
     int CfsGetattrTest(uint64_t ino, struct stat *stbuf);
 
-};
-
-
-enum CFS_RETCODE {
-    RET_OK = 0,
-    RET_ERR = 1,
-    RET_NO_ENTRY = 2, 
-    RET_EXIST = 3,
 };
 
 

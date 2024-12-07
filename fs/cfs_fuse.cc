@@ -3,10 +3,10 @@
 */
 
 #include "cfs_fuse.h"
-#include "cfs.h"
-
 #include "fuse_kernel.h"
-#include "fuse_i.h"
+#include "cfs.h"
+#include "defines.h"
+#include "../util/log.h"
 
 
 extern Cfs g_cfs_instance;
@@ -29,11 +29,11 @@ static void inoattr_to_stat(struct InodeAttr *inoattr, struct stat *stbuf) {
 
 void cfs_fuse_getattr(fuse_req_t req, fuse_ino_t ino,
 			     struct fuse_file_info *fi) {
+	SPDLOG_DEBUG("Enter cfs_fuse_getattr: ino={}", ino);
 	struct stat stbuf;
 	(void)fi;
 	memset(&stbuf, 0, sizeof(stbuf));
-	struct InodeAttr inode_attr;
-	memset(&inode_attr, 0, sizeof(inode_attr));
+	struct InodeAttr inode_attr = {0};
 
 	if (g_cfs_instance.CfsGetattr(ino, &inode_attr) == -1) {
 		fuse_reply_err(req, ENOENT);
@@ -42,6 +42,61 @@ void cfs_fuse_getattr(fuse_req_t req, fuse_ino_t ino,
 		fuse_reply_attr(req, &stbuf, 1.0);
 	}
 }
+
+void cfs_fuse_setattr (fuse_req_t req, fuse_ino_t ino, struct stat *attr,
+			 int to_set, struct fuse_file_info *fi) {
+	SPDLOG_DEBUG("Enter cfs_fuse_setattr: ino={}, to_set={0:b}", ino, to_set);
+	struct InodeAttr inoattr = {0};
+	int setmask = 0;
+
+	if (to_set & FUSE_SET_ATTR_MODE) {
+		setmask |= CFS_SET_ATTR_MODE;
+		inoattr.mode = attr->st_mode;
+	}
+	if (to_set & FUSE_SET_ATTR_UID) {
+		setmask |= CFS_SET_ATTR_UID;
+		inoattr.uid = attr->st_uid;
+	}
+	if (to_set & FUSE_SET_ATTR_GID) {
+		setmask |= CFS_SET_ATTR_GID;
+		inoattr.gid = attr->st_gid;
+	}
+	if (to_set & FUSE_SET_ATTR_ATIME) {
+		setmask |= CFS_SET_ATTR_ATIME;
+		inoattr.atime = attr->st_atim;
+	}
+	if (to_set & FUSE_SET_ATTR_MTIME) {
+		setmask |= CFS_SET_ATTR_MTIME;
+		inoattr.mtime = attr->st_mtim;
+	}
+	if (to_set & FUSE_SET_ATTR_ATIME_NOW) {
+		setmask |= CFS_SET_ATTR_ATIME_NOW;
+	}
+	if (to_set & FUSE_SET_ATTR_MTIME_NOW) {
+		setmask |= CFS_SET_ATTR_MTIME_NOW;
+	}
+	if (to_set & FUSE_SET_ATTR_CTIME) {
+		setmask |= CFS_SET_ATTR_CTIME;
+		inoattr.ctime = attr->st_ctim;
+	}
+	if (to_set & FUSE_SET_ATTR_SIZE) {
+		setmask |= CFS_SET_ATTR_SIZE;
+		inoattr.size = attr->st_size;
+	}
+	if (fi != NULL) {
+		setmask |= CFS_SET_ATTR_TRUNCATE;
+	}
+
+
+	struct InodeAttr new_inoattr = {0};
+	if (g_cfs_instance.CfsSetattr(ino, &inoattr, setmask, &new_inoattr) == -1) {
+		fuse_reply_err(req, EAGAIN);
+	} else {
+		inoattr_to_stat(&new_inoattr, attr);
+		fuse_reply_attr(req, attr, 1.0);
+	}
+}
+
 
 static int hello_stat(fuse_ino_t ino, struct stat *stbuf)
 {
@@ -78,20 +133,32 @@ void cfs_fuse_getattr_test(fuse_req_t req, fuse_ino_t ino,
 }
 
 void cfs_fuse_lookup(fuse_req_t req, fuse_ino_t parent, const char *name) {
+	SPDLOG_INFO("Enter cfs_fuse_lookup: pino={}, name={}", parent, name);
 	struct fuse_entry_param e;
-	uint64_t ino;
-	struct InodeAttr inoattr;
-	int ret = g_cfs_instance.CfsLookup(parent, name, &ino, &inoattr);
-	if (ret != RET_NO_ENTRY) {
-		fuse_reply_err(req, ENOENT);
+	uint64_t ino = 0;
+	struct InodeAttr inoattr = {0};
+	int ret = 0;
+	if (0 == strcmp(name, ".")) {
+		ret = g_cfs_instance.CfsGetattr(parent, &inoattr);
+		if (ret != RET_OK) {
+			SPDLOG_ERROR("CFS GETATTR OF name='.' error: {}.", ret);
+			fuse_reply_err(req, ENOENT);
+		} 
 	} else {
-		memset(&e, 0, sizeof(e));
-		e.ino = ino;
-		e.attr_timeout = 1.0;
-		e.entry_timeout = 1.0;
-		e.generation = 0;
-		inoattr_to_stat(&inoattr, &e.attr);
-		fuse_reply_entry(req, &e);
+		ret = g_cfs_instance.CfsLookup(parent, name, &ino, &inoattr);
+		if (ret == RET_NO_ENTRY) {
+			fuse_reply_err(req, ENOENT);
+		} else if (ret == RET_OK) {
+			memset(&e, 0, sizeof(e));
+			e.ino = ino;
+			e.attr_timeout = 1.0;
+			e.entry_timeout = 1.0;
+			e.generation = 0;
+			inoattr_to_stat(&inoattr, &e.attr);
+			fuse_reply_entry(req, &e);
+		} else {
+			fuse_reply_err(req, EBUSY);
+		}
 	}
 }
 
@@ -163,6 +230,7 @@ static size_t fill_fuse_direntry(fuse_req_t req, char *buf, size_t bufsize,
 
 void cfs_fuse_readdir(fuse_req_t req, fuse_ino_t ino, size_t size,
 			     off_t off, struct fuse_file_info *fi) {
+	SPDLOG_INFO("Enter cfs_fuse_readdir: ino={}, size={}, off={}", ino, size, off);
 	if (off == CFS_EOF) {
 		fuse_reply_buf(req, NULL, 0);		//means EOF of directory
 		return;
@@ -174,10 +242,11 @@ void cfs_fuse_readdir(fuse_req_t req, fuse_ino_t ino, size_t size,
 	std::vector<struct InodeAttr *> inodes;
 	int ret = g_cfs_instance.CfsReaddir(ino, off, &dentries, &inodes, false);
 	if (ret == RET_OK) {
-		size_t bufsize = dentries.size() * (sizeof(struct fuse_dirent) + FS_AVG_FILENAME_LEN);
+		size_t bufsize = dentries.size() * (sizeof(struct fuse_dirent) + CFS_AVG_FILENAME_LEN);
 		char * buf = (char*)malloc(bufsize);
 		size_t buf_left = fill_fuse_direntry(req, buf, bufsize, &dentries);
 		fuse_reply_buf(req, buf, bufsize - buf_left);
+		free(buf);
 	} else {
 		//dome some error handling;
 	}
@@ -220,7 +289,7 @@ static size_t fill_fuse_direntry_plus(fuse_req_t req, char *buf, size_t bufsize,
 
 void cfs_fuse_readdirplus (fuse_req_t req, fuse_ino_t ino, size_t size, off_t off,
 			 struct fuse_file_info *fi) {
-
+	SPDLOG_INFO("Enter cfs_fuse_readdirplus: ino={}, size={}, off={}", ino, size, off);
 	if (off == CFS_EOF) {
 		fuse_reply_buf(req, NULL, 0);		//means EOF of directory
 		return;
@@ -232,7 +301,7 @@ void cfs_fuse_readdirplus (fuse_req_t req, fuse_ino_t ino, size_t size, off_t of
 	std::vector<struct InodeAttr *> inodes;
 	int ret = g_cfs_instance.CfsReaddir(ino, off, &dentries, &inodes, true);
 	if (ret == RET_OK) {
-		size_t bufsize = dentries.size() * (sizeof(struct fuse_direntplus) + FS_AVG_FILENAME_LEN);
+		size_t bufsize = dentries.size() * (sizeof(struct fuse_direntplus) + CFS_AVG_FILENAME_LEN);
 		char * buf = (char*)malloc(bufsize);
 		size_t buf_left = fill_fuse_direntry_plus(req, buf, bufsize, &dentries, &inodes);
 		fuse_reply_buf(req, buf, bufsize - buf_left);
@@ -269,10 +338,15 @@ void cfs_fuse_readdir_test(fuse_req_t req, fuse_ino_t ino, size_t size,
 }
 
 
+void cfs_fuse_mkdir (fuse_req_t req, fuse_ino_t parent, const char *name,
+		       mode_t mode) {
+	SPDLOG_INFO("Enter cfs_fuse_mkdir: parent={}, name={}, mode={0:o}", parent, name, mode);
+}
+
 //fuse create and open file
 void cfs_fuse_create (fuse_req_t req, fuse_ino_t parent, const char *name,
 			mode_t mode, struct fuse_file_info *fi) {
-
+	SPDLOG_INFO("Enter cfs_fuse_create: parent={}, name={}, mode={0:o}", parent, name, mode);
 	struct InodeAttr inoattr = {0};
 	inoattr.uid = fuse_req_ctx(req)->uid;
 	inoattr.gid = fuse_req_ctx(req)->gid;
@@ -297,18 +371,61 @@ void cfs_fuse_create (fuse_req_t req, fuse_ino_t parent, const char *name,
 	if (ret != RET_OK) {
 		//print some error
 	}
+
+	fuse_entry_param entry_param = {0};
+	inoattr_to_stat(&inoattr, &entry_param.attr);
+	entry_param.attr_timeout = 1.0;
+	entry_param.entry_timeout = 1.0;
+	entry_param.generation = 0;
+	entry_param.ino = inoattr.ino;
+
+	fuse_reply_create(req, &entry_param, fi);
+
 }
 
 //fuse only create file(/dev)
 void cfs_fuse_mknod (fuse_req_t req, fuse_ino_t parent, const char *name,
 		       mode_t mode, dev_t rdev) {
-	
+	SPDLOG_DEBUG("Enter cfs_fuse_mknod: parent={}, name={}, mode={0:o}", parent, name, mode);
+	struct InodeAttr inoattr = {0};
+	inoattr.uid = fuse_req_ctx(req)->uid;
+	inoattr.gid = fuse_req_ctx(req)->gid;
+    //inoattr.ino = ?;
+    inoattr.pino = parent;
+	inoattr.mode = mode;
+    inoattr.nlink = (S_ISDIR(mode) ? 2 : 1);	
+	inoattr.size = (S_ISDIR(mode) ? 4096 : 0);
+	struct timespec curtime;
+    clock_gettime(CLOCK_REALTIME, &curtime);
+    inoattr.atime = curtime;
+    inoattr.ctime = curtime;
+    inoattr.mtime = curtime;
+
+	int ret = g_cfs_instance.CfsCreate(parent, name, mode, &inoattr);
+	if (ret != RET_OK) {
+		//print some error
+	}
+
+	fuse_entry_param entry_param = {0};
+	inoattr_to_stat(&inoattr, &entry_param.attr);
+	entry_param.attr_timeout = 1.0;
+	entry_param.entry_timeout = 1.0;
+	entry_param.generation = 0;
+	entry_param.ino = inoattr.ino;
+
+	fuse_reply_entry(req, &entry_param);
 }
 
 //fuse only open file
 void cfs_fuse_open(fuse_req_t req, fuse_ino_t ino,
 			  struct fuse_file_info *fi) {
-	
+	SPDLOG_DEBUG("Enter cfs_fuse_open: ino={}", ino);
+	int ret = g_cfs_instance.CfsOpen(ino, fi->flags, &fi->fh);
+	if (ret != RET_OK) {
+		//print some error
+		//fuse_reply_err();
+	}
+	fuse_reply_open(req, fi);
 }
 
 void cfs_fuse_open_test(fuse_req_t req, fuse_ino_t ino,
@@ -322,7 +439,7 @@ void cfs_fuse_open_test(fuse_req_t req, fuse_ino_t ino,
 
 }
 
-void cfs_fuse_read(fuse_req_t req, fuse_ino_t ino, size_t size,
+void cfs_fuse_read_test(fuse_req_t req, fuse_ino_t ino, size_t size,
 			  off_t off, struct fuse_file_info *fi) {
 	(void) fi;
 
@@ -330,6 +447,35 @@ void cfs_fuse_read(fuse_req_t req, fuse_ino_t ino, size_t size,
 	reply_buf_limited(req, hello_str, strlen(hello_str), off, size);
 }
 
+void cfs_fuse_read(fuse_req_t req, fuse_ino_t ino, size_t size,
+			  off_t off, struct fuse_file_info *fi) {
+	SPDLOG_DEBUG("Enter cfs_fuse_read: ino={}, size={}, off={}", ino, size, off);
+	if (size <= 0 || size > CFS_MAX_BLK_SIZE) {
+		fuse_reply_err(req, EINVAL);
+	}
+	char *rdbuf = (char*)malloc(size);
+	int cnt = g_cfs_instance.CfsRead(ino, fi->fh, size, off, rdbuf);
+	if (cnt == RET_ERR || cnt > size) {
+		//print some error;
+	}
+	
+	fuse_reply_buf(req, rdbuf, cnt);
+
+	free(rdbuf);
+} 
+
+void cfs_fuse_write (fuse_req_t req, fuse_ino_t ino, const char *buf,
+		       size_t size, off_t off, struct fuse_file_info *fi) {
+	SPDLOG_DEBUG("Enter cfs_fuse_write: ino={}, size={}, off={}", ino, size, off);
+	if (size <= 0 || size > CFS_MAX_BLK_SIZE) {
+		fuse_reply_err(req, EINVAL);
+	}
+	int cnt = g_cfs_instance.CfsWrite(ino, fi->fh, size, off, (char*)buf);
+	if (cnt == RET_ERR || cnt > size) {
+		//print some error;
+	}
+	fuse_reply_write(req, cnt);
+}
 
 
 int cfs_fuse_mainloop(int argc, char *argv[]) {
@@ -371,8 +517,8 @@ int cfs_fuse_mainloop(int argc, char *argv[]) {
 
 	if (fuse_session_mount(se, opts.mountpoint) != 0)
 	    goto err_out3;
-	opts.foreground = true;		//add here for debug 2024-11-23
-	opts.max_threads = 10;		//add here for debug 2024-11-23
+	opts.foreground = true;
+	opts.max_threads = 1;		//add here for debug 2024-11-23
 	fuse_daemonize(opts.foreground);
 
 	/* Block until ctrl+c or fusermount -u */

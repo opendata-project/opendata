@@ -2,8 +2,8 @@
  *cluster file system interface integrated with FUSE
 */
 
-#ifndef FS_CFS_FUSE_H_
-#define FS_CFS_FUSE_H_
+#ifndef CFS_FUSE_H_
+#define CFS_FUSE_H_
 
 #ifdef __cplusplus
 extern "C" {
@@ -29,12 +29,12 @@ void cfs_fuse_lookup(fuse_req_t req, fuse_ino_t parent, const char *name);
 static void cfs_fuse_forget (fuse_req_t req, fuse_ino_t ino, uint64_t nlookup);
 void cfs_fuse_getattr(fuse_req_t req, fuse_ino_t ino,
 			     struct fuse_file_info *fi);
-static void cfs_fuse_setattr (fuse_req_t req, fuse_ino_t ino, struct stat *attr,
+void cfs_fuse_setattr (fuse_req_t req, fuse_ino_t ino, struct stat *attr,
 			 int to_set, struct fuse_file_info *fi);
 static void cfs_fuse_readlink (fuse_req_t req, fuse_ino_t ino);
 void cfs_fuse_mknod (fuse_req_t req, fuse_ino_t parent, const char *name,
 		       mode_t mode, dev_t rdev);
-static void cfs_fuse_mkdir (fuse_req_t req, fuse_ino_t parent, const char *name,
+void cfs_fuse_mkdir (fuse_req_t req, fuse_ino_t parent, const char *name,
 		       mode_t mode);
 static void cfs_fuse_unlink (fuse_req_t req, fuse_ino_t parent, const char *name);
 static void cfs_fuse_rmdir (fuse_req_t req, fuse_ino_t parent, const char *name);
@@ -49,7 +49,7 @@ void cfs_fuse_open(fuse_req_t req, fuse_ino_t ino,
 			  struct fuse_file_info *fi);
 void cfs_fuse_read(fuse_req_t req, fuse_ino_t ino, size_t size,
 			  off_t off, struct fuse_file_info *fi);
-static void cfs_fuse_write (fuse_req_t req, fuse_ino_t ino, const char *buf,
+void cfs_fuse_write (fuse_req_t req, fuse_ino_t ino, const char *buf,
 		       size_t size, off_t off, struct fuse_file_info *fi);
 static void cfs_fuse_flush (fuse_req_t req, fuse_ino_t ino,
 		       struct fuse_file_info *fi);
@@ -104,7 +104,7 @@ static void cfs_fuse_flock (fuse_req_t req, fuse_ino_t ino,
 		       struct fuse_file_info *fi, int op);
 static void cfs_fuse_fallocate (fuse_req_t req, fuse_ino_t ino, int mode,
 		       off_t offset, off_t length, struct fuse_file_info *fi);
-static void cfs_fuse_readdirplus (fuse_req_t req, fuse_ino_t ino, size_t size, off_t off,
+void cfs_fuse_readdirplus (fuse_req_t req, fuse_ino_t ino, size_t size, off_t off,
 			 struct fuse_file_info *fi);
 static void cfs_fuse_copy_file_range (fuse_req_t req, fuse_ino_t ino_in,
 				 off_t off_in, struct fuse_file_info *fi_in,
@@ -124,6 +124,10 @@ void cfs_fuse_getattr_test(fuse_req_t req, fuse_ino_t ino,
 			     struct fuse_file_info *fi);
 void cfs_fuse_readdir_test(fuse_req_t req, fuse_ino_t ino, size_t size,
 			     off_t off, struct fuse_file_info *fi);
+void cfs_fuse_open_test(fuse_req_t req, fuse_ino_t ino,
+			  struct fuse_file_info *fi);
+void cfs_fuse_read_test(fuse_req_t req, fuse_ino_t ino, size_t size,
+			  off_t off, struct fuse_file_info *fi);
 /*
 * test function finish
 */
@@ -131,26 +135,26 @@ void cfs_fuse_readdir_test(fuse_req_t req, fuse_ino_t ino, size_t size,
 static const struct fuse_lowlevel_ops cfs_fuse_oper = {
     .init       = NULL,
     .destroy    = NULL,
-    .lookup     = cfs_fuse_lookup_test,
+    .lookup     = cfs_fuse_lookup, //cfs_fuse_lookup_test,
     .forget     = NULL,
-    .getattr    = cfs_fuse_getattr_test,
-    .setattr    = NULL,
+    .getattr    = cfs_fuse_getattr, //cfs_fuse_getattr_test,
+    .setattr    = cfs_fuse_setattr,
     .readlink   = NULL,
-    .mknod      = NULL,
+    .mknod      = cfs_fuse_mknod,
     .mkdir      = NULL,
     .unlink     = NULL,
     .rmdir      = NULL,
     .symlink    = NULL,
     .rename     = NULL,
     .link       = NULL,
-	.open		= cfs_fuse_open,
-	.read		= cfs_fuse_read,
-    .write      = NULL,
+	.open		= cfs_fuse_open, //cfs_fuse_open_test,
+	.read		= cfs_fuse_read, //cfs_fuse_read_test,
+    .write      = cfs_fuse_write,
     .flush      = NULL,
     .release    = NULL,
     .fsync      = NULL,
     .opendir    = NULL,
-	.readdir	= cfs_fuse_readdir_test,
+	.readdir	= cfs_fuse_readdir, //cfs_fuse_readdir_test,
     .releasedir = NULL,
     .fsyncdir   = NULL,
     .statfs     = NULL,
@@ -159,7 +163,7 @@ static const struct fuse_lowlevel_ops cfs_fuse_oper = {
     .listxattr  = NULL,
     .removexattr    = NULL,
     .access     = NULL,
-    .create     = NULL,
+    .create     = cfs_fuse_create,
     .getlk      = NULL,
     .setlk      = NULL,
     .bmap       = NULL,
@@ -174,7 +178,7 @@ static const struct fuse_lowlevel_ops cfs_fuse_oper = {
     .forget_multi   = NULL,
     .flock      = NULL,
     .fallocate  = NULL,
-    .readdirplus    = NULL,
+    .readdirplus    = cfs_fuse_readdirplus,
     .copy_file_range = NULL,
     .lseek      = NULL,
 };

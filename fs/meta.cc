@@ -1,6 +1,7 @@
 
 #include "meta.h"
 
+#include "../util/log.h"
 
 
 Meta::Meta() {
@@ -24,6 +25,11 @@ void Meta::Finish() {
 int Meta::GetInodeAttr(uint64_t ino, struct InodeAttr *inoattr) {
  
     return metadb_.GetInodeAttr(ino, inoattr);
+}
+
+
+int Meta::SetInodeAttr(uint64_t ino, struct InodeAttr *inoattr) {
+    return metadb_.SetInodeAttr(ino, inoattr);
 }
 
 int Meta::Lookup(uint64_t parent, const char *name, uint64_t *inode, struct InodeAttr *inoattr) {
