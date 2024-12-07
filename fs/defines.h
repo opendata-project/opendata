@@ -2,7 +2,7 @@
 #ifndef DEFINES_H_
 #define DEFINES_H_
 
-
+#include <errno.h>
 
 #define CFS_EOF -1
 #define CFS_MAX_FILENAME_LEN    255             //max file name string len : 255
@@ -27,13 +27,19 @@
 #define CFS_SET_ATTR_KILL_SGID  (1 << 12)
 #define CFS_SET_ATTR_TRUNCATE   (1 << 13)
 
+/*RET CODE OF CFS*/
 
-enum CFS_RETCODE {
-    RET_ERR         = -1,
-    RET_OK          = 0,
-    RET_NO_ENTRY    = 1, 
-    RET_EXIST       = 2,
-};
+#define RET_ERR                 -1
+#define RET_OK                  0
+
+#define RET_ENOENT              ENOENT
+#define RET_EEXIST              EEXIST
+#define RET_EINVAL              EINVAL
+#define RET_ENOTDIR             ENOTDIR
+#define RET_ENOTEMPTY           ENOTEMPTY
+
+#define RET_NOTSUPPORT          1001
+
 
 
 #endif

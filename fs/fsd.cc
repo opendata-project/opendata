@@ -15,6 +15,9 @@
 extern Cfs g_cfs_instance;
 
 
+
+
+
 int main(int argc, char *argv[]) {
 
 	system("rm -rf /opt/cfs_meta_data/fsmeta_rocksdb");

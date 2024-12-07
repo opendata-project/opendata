@@ -39,11 +39,17 @@ void MetaDB::InitMetaDB() {
     s = db->CreateColumnFamily(ColumnFamilyOptions(), "table_dentry", &table_dentry);
     assert(s.ok());
 
+    //create table for transh
+    ColumnFamilyHandle* table_trash;
+    s = db->CreateColumnFamily(ColumnFamilyOptions(), "table_trash", &table_trash);
+    assert(s.ok());
+
     //close DB
     s = db->DestroyColumnFamilyHandle(table_inode);
     assert(s.ok());
     s = db->DestroyColumnFamilyHandle(table_dentry);
     assert(s.ok());
+    s = db->DestroyColumnFamilyHandle(table_trash);
     delete db;
 
     
@@ -57,6 +63,8 @@ void MetaDB::InitMetaDB() {
         ColumnFamilyDescriptor("table_inode", ColumnFamilyOptions()));
     column_families.push_back(
         ColumnFamilyDescriptor("table_dentry", ColumnFamilyOptions()));
+    column_families.push_back(
+        ColumnFamilyDescriptor("table_trash", ColumnFamilyOptions()));
 
     s = TransactionDB::Open(options, txn_db_options, kDBPath, column_families, &table_handles_, &rocksdb_);
     assert(s.ok());
@@ -175,7 +183,7 @@ int MetaDB::Lookup(uint64_t parent, const char *name, uint64_t *inode, struct In
     if (s.ok()) {
         *inode = *(uint64_t *)tmp.data();
     } else if (s.IsNotFound()) {
-        return RET_NO_ENTRY;
+        return RET_ENOENT;
     } else {
         return RET_ERR;
     }
@@ -212,7 +220,7 @@ void MetaDB::DecodeDentryKey(char *keybuf, int keylen, uint64_t *pino, char *nam
     keybuf += sizeof(pino);
     if (keylen > 0) {
         memcpy(name, keybuf, keylen);
-        name[keylen+1] = 0;         //end of string
+        name[keylen] = 0;         //end of string
     }
 }
 
@@ -371,7 +379,7 @@ int MetaDB::Create(uint64_t pino, const char *name, uint32_t mode, struct InodeA
     Status s = txn->GetForUpdate(read_options_, table_handles_[TABLE_DENTRY], Slice(keybuf, keylen), &tmp);
     if (!s.IsNotFound()) {
         txn->Rollback();
-        return RET_EXIST;
+        return RET_EEXIST;
     }
     //get for update inode: pino
     s = txn->GetForUpdate(read_options_, table_handles_[TABLE_INODE], Slice((char*)&pino, sizeof(pino)), &tmp);
@@ -389,6 +397,8 @@ int MetaDB::Create(uint64_t pino, const char *name, uint32_t mode, struct InodeA
         return RET_ERR;
     }
 
+    SPDLOG_INFO("insert dentry: pino={},name={},ino={}", pino, name, ino);
+
     //insert inode: ino
     inoattr->ino = ino;
     s = txn->Put(table_handles_[TABLE_INODE], Slice((char*)&ino, sizeof(ino)), Slice((char*)inoattr, sizeof(*inoattr)));
@@ -397,10 +407,15 @@ int MetaDB::Create(uint64_t pino, const char *name, uint32_t mode, struct InodeA
         return RET_ERR;
     }
 
+    SPDLOG_INFO("insert inode: ino={}, attr.mode={0:o} attr.pino={}", ino, inoattr->mode, inoattr->pino);
+
 
     //update parent inode: pino
     parent_inoattr->ctime = inoattr->ctime;
     parent_inoattr->mtime = inoattr->mtime;
+    if (S_ISDIR(mode)) {
+        parent_inoattr->nlink++;
+    }
     s = txn->Put(table_handles_[TABLE_INODE], Slice((char*)&pino, sizeof(pino)), Slice((char*)parent_inoattr, sizeof(*parent_inoattr)));
     if (!s.ok()) {
         txn->Rollback();
@@ -420,6 +435,142 @@ int MetaDB::Create(uint64_t pino, const char *name, uint32_t mode, struct InodeA
 }
 
 
+int MetaDB::Unlink(uint64_t pino, const char *name) {
+
+    Transaction* txn = rocksdb_->BeginTransaction(write_options_, txn_options_);
+
+    int keylen = 0;
+    char keybuf[MAX_DENTRY_KEY_LEN] = {0};
+    EncodeDentryKey(pino, name, keybuf, &keylen);
+
+    //get for update dentry: pino+name
+    std::string tmp; 
+    Status s = txn->GetForUpdate(read_options_, table_handles_[TABLE_DENTRY], Slice(keybuf, keylen), &tmp);
+    if (s.IsNotFound()) {
+        txn->Rollback();
+        return RET_OK;
+    }
+    uint64_t ino = *(uint64_t*)tmp.data();
+
+    //get for update inode: pino
+    struct InodeAttr parent_inoattr = {0};
+    s = txn->GetForUpdate(read_options_, table_handles_[TABLE_INODE], Slice((char*)&pino, sizeof(pino)), &tmp);
+    if (!s.ok()) {
+        txn->Rollback();
+        return RET_ERR;
+    }
+    memcpy(&parent_inoattr, tmp.data(), tmp.size());
+
+    //get for update inode: ino
+    struct InodeAttr inoattr = {0};
+    s = txn->GetForUpdate(read_options_, table_handles_[TABLE_INODE], Slice((char*)&ino, sizeof(ino)), &tmp);
+    if (!s.ok()) {
+        txn->Rollback();
+        return RET_ERR;
+    }
+    memcpy(&inoattr, tmp.data(), tmp.size());
+
+    //TODO: wrapper in funciton process later
+    struct timespec curtime;
+    clock_gettime(CLOCK_REALTIME, &curtime);
+
+    inoattr.nlink--;
+    inoattr.ctime = curtime;
+    inoattr.mtime = curtime;
+
+    if (inoattr.nlink == 0) {
+        //delete dentry
+        txn->Delete(table_handles_[TABLE_DENTRY], Slice(keybuf, keylen));
+        //delete inode
+        txn->Delete(table_handles_[TABLE_INODE], Slice((char*)&ino, sizeof(ino)));
+        //add inode to trash
+        txn->Put(table_handles_[TABLE_TRASH], Slice((char*)&ino, sizeof(ino)), Slice((char*)&inoattr, sizeof(inoattr)));
+    } else {
+        //only delete this dentry
+        txn->Delete(table_handles_[TABLE_DENTRY], Slice(keybuf, keylen));
+        //update inode
+        txn->Put(table_handles_[TABLE_INODE], Slice((char*)&ino, sizeof(ino)), Slice((char*)&inoattr, sizeof(inoattr)));
+    }
+
+    //update parent inode: pino
+    parent_inoattr.ctime = curtime;
+    parent_inoattr.mtime = curtime;
+    s = txn->Put(table_handles_[TABLE_INODE], Slice((char*)&pino, sizeof(pino)), Slice((char*)&parent_inoattr, sizeof(parent_inoattr)));
+
+    s = txn->Commit();
+    if (!s.ok()) {
+        txn->Rollback();
+        return RET_ERR;
+    }
+    delete txn;
+
+    return RET_OK;
+
+}
+
+
+int MetaDB::Rmdir(uint64_t pino, const char *name, bool should_empty) {
+
+    Transaction* txn = rocksdb_->BeginTransaction(write_options_, txn_options_);
+
+    int keylen = 0;
+    char keybuf[MAX_DENTRY_KEY_LEN] = {0};
+    EncodeDentryKey(pino, name, keybuf, &keylen);
+
+    //get for update dentry: pino+name
+    std::string tmp; 
+    Status s = txn->GetForUpdate(read_options_, table_handles_[TABLE_DENTRY], Slice(keybuf, keylen), &tmp);
+    if (s.IsNotFound()) {
+        txn->Rollback();
+        return RET_OK;
+    }
+    uint64_t ino = *(uint64_t*)tmp.data();
+
+
+    //get for update inode: ino
+    struct InodeAttr inoattr = {0};
+    s = txn->GetForUpdate(read_options_, table_handles_[TABLE_INODE], Slice((char*)&ino, sizeof(ino)), &tmp);
+    if (!s.ok()) {
+        txn->Rollback();
+        return RET_ERR;
+    }
+    memcpy(&inoattr, tmp.data(), tmp.size());    
+
+
+    //get for update inode: pino
+    struct InodeAttr parent_inoattr = {0};
+    s = txn->GetForUpdate(read_options_, table_handles_[TABLE_INODE], Slice((char*)&pino, sizeof(pino)), &tmp);
+    if (!s.ok()) {
+        txn->Rollback();
+        return RET_ERR;
+    }
+    memcpy(&parent_inoattr, tmp.data(), tmp.size());
+
+
+    //TODO: wrapper in funciton process later
+
+    //delete dentry
+    txn->Delete(table_handles_[TABLE_DENTRY], Slice(keybuf, keylen));
+    //delete inode
+    txn->Delete(table_handles_[TABLE_INODE], Slice((char*)&ino, sizeof(ino)));
+
+    //update parent inode: pino
+    struct timespec curtime;
+    clock_gettime(CLOCK_REALTIME, &curtime);
+    parent_inoattr.nlink--;
+    parent_inoattr.ctime = curtime;
+    parent_inoattr.mtime = curtime;
+    s = txn->Put(table_handles_[TABLE_INODE], Slice((char*)&pino, sizeof(pino)), Slice((char*)&parent_inoattr, sizeof(parent_inoattr)));
+
+    s = txn->Commit();
+    if (!s.ok()) {
+        txn->Rollback();
+        return RET_ERR;
+    }
+    delete txn;
+
+    return RET_OK;
+}
 
 
 
@@ -450,7 +601,7 @@ int MetaDB::GetKV(const char *key, int klen, char *value, int *vlen) {
         memcpy(value, tmp.data(), *vlen);
         return RET_OK;
     } else if (s.IsNotFound()) {
-        return RET_NO_ENTRY;
+        return RET_ENOENT;
     } else {
         return RET_ERR;
     }
@@ -469,7 +620,7 @@ void SeqAllocator::SeqInit(const char* seqname, MetaDB *ptr) {
     //get seq_id_persist_;
     int vlen = 0;
     int ret = dbptr_->GetKV(seq_name_, strlen(seq_name_), (char*)seq_id_persist_, &vlen);
-    if (ret == RET_NO_ENTRY) {
+    if (ret == RET_ENOENT) {
         seq_id_ = SEQ_ID_BEGIN_;
     } else if (ret == RET_OK) {
         seq_id_ = seq_id_persist_;

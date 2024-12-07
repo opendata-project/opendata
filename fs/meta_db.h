@@ -65,9 +65,10 @@ class MetaDB {
 
 public:
     enum {
-        TABLE_DEFAULT = 0,          //KEY-VALUE: misc: (1). max inode number; (2). 
-        TABLE_INODE = 1,            //KEY-VALUE: inode <-> inode attribute;
-        TABLE_DENTRY=2,             //KEY-VALUE: parent inode + name <-> inode;
+        TABLE_DEFAULT   = 0,            //KEY-VALUE: misc: (1). max inode number; (2). 
+        TABLE_INODE     = 1,            //KEY-VALUE: inode <-> inode attribute;
+        TABLE_DENTRY    = 2,            //KEY-VALUE: parent inode + name <-> inode;
+        TABLE_TRASH    = 3,            //KEY-VALUE: inode <-> inode attribute; for delete in background
     };
     MetaDB();
     ~MetaDB();
@@ -87,6 +88,9 @@ public:
     int Readdir(uint64_t pino, int off, std::vector<struct DirEntry*> *dentries, 
                     std::vector<struct InodeAttr*> *inodes, bool readdirplus);
     int Create(uint64_t pino, const char *name, uint32_t mode, struct InodeAttr *inoattr, struct InodeAttr *parent_inoattr);
+
+    int Unlink(uint64_t pino, const char *name);
+    int Rmdir(uint64_t pino, const char *name, bool should_empty);
 
 private:
     void InitRootDirInode();

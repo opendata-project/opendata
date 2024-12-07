@@ -45,14 +45,14 @@ struct FileHandle {
     };
 };
 
-struct CtxFile {
-    uint64_t ino;
-    uint32_t flag;
-    uint32_t mode;
-    uint32_t refcnt;
-    uint32_t uid;
-    uint32_t gid;
-};
+// struct CtxFile {
+//     uint64_t ino;
+//     uint32_t flag;
+//     uint32_t mode;
+//     uint32_t refcnt;
+//     uint32_t uid;
+//     uint32_t gid;
+// };
 
 
 
@@ -67,10 +67,11 @@ private:
     /* fist iteration with single process for simplicity, 
     later will have dedicated metadata server */
     Meta meta_;
-    std::map<uint64_t, struct CtxFile*> ctx_files_;         //TODO: key should be change to struct FileHandle;
-    typedef std::map<uint64_t, struct CtxFile*> MapCtxFiles_t;
 
     Data data_;
+
+    // std::map<uint64_t, struct CtxFile*> ctx_files_;         //TODO: key should be change to struct FileHandle;
+    // typedef std::map<uint64_t, struct CtxFile*> MapCtxFiles_t;
 
 
 public:
@@ -81,12 +82,14 @@ public:
     int CfsReaddir(uint64_t pino, int off, std::vector<struct DirEntry*> *dentries, 
                     std::vector<struct InodeAttr*> *inodes, bool readdirplus);
     int CfsLookup(uint64_t parent, const char *name, uint64_t *inode, struct InodeAttr *inoattr);
-    int CfsOpen(uint64_t ino, uint32_t flag, uint64_t *fh);
     int CfsCreate(uint64_t pino, const char *name, uint32_t mode, struct InodeAttr *inoattr);
 
-public: 
+    int CfsOpen(uint64_t ino, uint32_t flag, uint64_t *fh);
+    int CfsRelease(uint64_t ino, uint64_t fh);
+    int CfsUnlink(uint64_t pino, const char *name);
+    int CfsRmdir(uint64_t pino, const char *name, bool should_empty);
 
-    int CfsGetattrTest(uint64_t ino, struct stat *stbuf);
+public: 
 
 };
 

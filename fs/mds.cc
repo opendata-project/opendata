@@ -46,7 +46,7 @@ struct InodeStat {
 };
 
 
-static void GenerateChunkName(uint64_t ino, uint64_t chunkid, char*chunkname) {
+void GenerateChunkName(uint64_t ino, uint64_t chunkid, char*chunkname) {
 	chunkname[0] = 'i';
 	chunkname += 1;
     int cnt = sprintf(chunkname, "%llu", (long long unsigned int)ino);

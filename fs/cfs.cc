@@ -15,10 +15,6 @@
 Cfs g_cfs_instance;
 
 
-static const char *hello_str = "Hello World!\n";		//just for demo
-static const char *hello_name = "hello";				//just for demo
-std::string kDBPath = "/opt/tmp/rocksdb_example";
-
 Cfs::Cfs() {
 }
 
@@ -99,26 +95,6 @@ int Cfs::CfsSetattr(uint64_t ino, struct InodeAttr *inoattr, int setmask, struct
 }
 
 
-int Cfs::CfsGetattrTest(uint64_t ino, struct stat *stbuf) {
-	stbuf->st_ino = ino;
-	switch (ino) {
-	case 1:
-		stbuf->st_mode = S_IFDIR | 0755;
-		stbuf->st_nlink = 2;
-		break;
-
-	case 2:
-		stbuf->st_mode = S_IFREG | 0444;
-		stbuf->st_nlink = 1;
-		stbuf->st_size = strlen(hello_str);
-		break;
-
-	default:
-		return -1;
-	}
-	return 0;
-}
-
 
 int Cfs::CfsLookup(uint64_t parent, const char *name, uint64_t *inode, struct InodeAttr *inoattr) {
 	
@@ -150,7 +126,7 @@ int Cfs::CfsOpen(uint64_t ino, uint32_t flag, uint64_t *fh) {
 	//check ino exist:
 	struct InodeAttr inoattr = {0};
 	int ret = meta_.GetInodeAttr(ino, &inoattr);
-	if (ret == RET_NO_ENTRY) {
+	if (ret == RET_ENOENT) {
 		return RET_ERR;
 	}
 	if (IS_INO_MARKDEL(inoattr.status)) {
@@ -163,24 +139,53 @@ int Cfs::CfsOpen(uint64_t ino, uint32_t flag, uint64_t *fh) {
 	}
 
 	//manage file handle
-	struct CtxFile *ctxfile = NULL;
-	std::map<uint64_t, struct CtxFile*>::iterator map_iter = ctx_files_.find(ino);
-	if (map_iter != ctx_files_.end()) {
-		ctxfile = map_iter->second;
-		ctxfile->refcnt++;
-	} else {
-		ctxfile = (struct CtxFile*)malloc(sizeof(struct CtxFile));
-		ctxfile->flag = flag;
-		ctxfile->ino = ino;
-		ctxfile->refcnt = 1;
-		ctxfile->uid = inoattr.uid;
-		ctxfile->gid = inoattr.gid;
-		ctx_files_.emplace(ino, ctxfile);
-		*fh = ino;
-	}
+	*fh = flag;
+	// struct CtxFile *ctxfile = NULL;
+	// std::map<uint64_t, struct CtxFile*>::iterator map_iter = ctx_files_.find(ino);
+	// if (map_iter != ctx_files_.end()) {
+	// 	ctxfile = map_iter->second;
+	// 	ctxfile->refcnt++;
+	// } else {
+	// 	ctxfile = (struct CtxFile*)malloc(sizeof(struct CtxFile));
+	// 	ctxfile->flag = flag;
+	// 	ctxfile->ino = ino;
+	// 	ctxfile->refcnt = 1;
+	// 	ctxfile->uid = inoattr.uid;
+	// 	ctxfile->gid = inoattr.gid;
+	// 	ctx_files_.emplace(ino, ctxfile);
+	// 	*fh = ino;
+	// }
 
 	return 0;
+
+}
+
+int Cfs::CfsRelease(uint64_t ino, uint64_t fh) {
 	
+	//TODO:handle markdelete:
+	return 0;
+}
+
+int Cfs::CfsUnlink(uint64_t pino, const char *name) {
+	// uint64_t ino = 0;
+	// struct InodeAttr inoattr = {0};
+	// int ret = CfsLookup(pino, name, &ino, &inoattr);
+	// if (ret == RET_ENOENT) {
+	// 	return RET_OK;
+	// }
+	
+	//TODO: check some auth:
+
+	//check if link == 0
+	return meta_.Unlink(pino, name);
+
+}
+
+
+int Cfs::CfsRmdir(uint64_t pino, const char *name, bool should_empty) {
+
+
+	return meta_.Rmdir(pino, name, should_empty);	
 
 }
 
@@ -190,6 +195,13 @@ int Cfs::CfsRead(uint64_t ino, uint64_t fh, int size, uint64_t off, char *buf) {
 		//print some error;
 		return -1;
 	}
+
+	// struct InodeAttr inoattr = {0};
+	// CfsGetattr(ino, &inoattr);
+	// if (!S_ISREG(inoattr.mode)) {
+	// 	//print some error.
+	// 	return -1;
+	// }
 
 	uint64_t chunkid_1 = off / CFS_MAX_BLK_SIZE;
 	uint64_t chunkoff_1 = off % CFS_MAX_BLK_SIZE;
@@ -217,20 +229,17 @@ int Cfs::CfsRead(uint64_t ino, uint64_t fh, int size, uint64_t off, char *buf) {
 	}
 
 	//update atime
-	struct CtxFile *ctxfile = NULL;
-	std::map<uint64_t, struct CtxFile*>::iterator map_iter = ctx_files_.find(ino);
-	if (map_iter != ctx_files_.end()) {
-		ctxfile = map_iter->second;
-		if (!(ctxfile->flag | O_NOATIME)) {
-			struct InodeAttr inoattr = {0};
-			struct timespec curtime;
-			clock_gettime(CLOCK_REALTIME, &curtime);
-			inoattr.atime = curtime;
-			int setmask = CFS_SET_ATTR_ATIME;
-			struct InodeAttr new_inoattr = {0};
-			CfsSetattr(ino, &inoattr, setmask, &new_inoattr);
-		}
+	int flag = (int)fh;
+	if (!(flag & O_NOATIME)) {
+		struct InodeAttr inoattr = {0};
+		struct timespec curtime;
+		clock_gettime(CLOCK_REALTIME, &curtime);
+		inoattr.atime = curtime;
+		int setmask = CFS_SET_ATTR_ATIME;
+		struct InodeAttr new_inoattr = {0};
+		CfsSetattr(ino, &inoattr, setmask, &new_inoattr);
 	}
+
 
 	return cnt;
 }
@@ -241,6 +250,13 @@ int Cfs::CfsWrite(uint64_t ino, uint64_t fh, int size, uint64_t off, char *buf) 
 		//print some error;
 		return -1;
 	}
+
+	// struct InodeAttr inoattr = {0};
+	// CfsGetattr(ino, &inoattr);
+	// if (!S_ISREG(inoattr.mode)) {
+	// 	//print some error.
+	// 	return -1;
+	// }
 
 	uint64_t chunkid_1 = off / CFS_MAX_BLK_SIZE;
 	uint64_t chunkoff_1 = off % CFS_MAX_BLK_SIZE;
