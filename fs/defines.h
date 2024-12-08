@@ -6,7 +6,7 @@
 
 #define CFS_EOF -1
 #define CFS_MAX_FILENAME_LEN    255             //max file name string len : 255
-#define CFS_AVG_FILENAME_LEN    32
+#define CFS_AVG_FILENAME_LEN    128
 #define CFS_MAX_BLK_SIZE        4*1024*1024     //max block size: read, write, chunk
 
 #define IS_INO_MARKDEL(status)     ((status) & 0x00000001)

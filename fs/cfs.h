@@ -89,8 +89,10 @@ public:
     int CfsUnlink(uint64_t pino, const char *name);
     int CfsRmdir(uint64_t pino, const char *name, bool should_empty);
 
-public: 
+    int CfsRename(uint64_t pino, const char *name, uint64_t newpino, const char *newname);
 
+public: 
+    void CfsRunBgTask();
 };
 
 

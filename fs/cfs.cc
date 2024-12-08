@@ -22,8 +22,8 @@ Cfs::~Cfs() {
 }
 
 void Cfs::Init() {
-	meta_.Init();
 	data_.Init();
+	meta_.Init(&data_);
 }
 
 void Cfs::Finish() {
@@ -300,3 +300,14 @@ int Cfs::CfsWrite(uint64_t ino, uint64_t fh, int size, uint64_t off, char *buf) 
 }
 
 
+int Cfs::CfsRename(uint64_t pino, const char *name, uint64_t newpino, const char *newname) {
+	if (pino == newpino && !strcmp(name, newname)) {
+		return RET_OK;
+	}
+	return meta_.Rename(pino, name, newpino, newname);
+}
+
+
+void Cfs::CfsRunBgTask() {
+	meta_.RunBgTask();
+}

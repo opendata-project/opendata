@@ -14,7 +14,7 @@ void Data::Init() {
 	}
 }
 
-void GenerateChunkName(uint64_t ino, uint64_t chunkid, char*chunkname) {
+void GenerateChunkName(uint64_t ino, uint64_t chunkid, char* chunkname) {
 	chunkname[0] = 'i';
 	chunkname += 1;
     int cnt = sprintf(chunkname, "%llu", (long long unsigned int)ino);
@@ -78,3 +78,17 @@ int Data::Write(uint64_t ino, uint64_t chunkid, uint64_t chunkoff, int chunklen,
     close(fd);
     return size;
 }
+
+
+int Data::Delete(uint64_t ino, uint64_t chunkid) {
+    char chunkname[CFS_CHUNK_NAME_LEN] = {0};
+    GenerateChunkName(ino, chunkid, chunkname);
+    std::string chunkfullpath = chunk_path_ + std::string(chunkname);
+    int ret = remove(chunkfullpath.c_str());
+    if (ret != 0) {
+        //print some error.
+        SPDLOG_ERROR("delete file ino={} chunkid={} errno={} failed.", ino, chunkid, errno);
+    }
+    return ret;
+}
+

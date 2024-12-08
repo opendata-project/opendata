@@ -5,6 +5,7 @@
 #include "cfs.h"
 #include "defines.h"
 #include "../util/log.h"
+#include "meta.h"
 
 
 MetaDB::MetaDB() {
@@ -15,7 +16,8 @@ MetaDB::~MetaDB() {
 
 }
 
-void MetaDB::InitMetaDB() {
+void MetaDB::InitMetaDB(Meta *pmeta) {
+    pmeta_ = pmeta;
 
     std::string kDBPath = "/opt/cfs_meta_data/fsmeta_rocksdb";
 
@@ -573,9 +575,110 @@ int MetaDB::Rmdir(uint64_t pino, const char *name, bool should_empty) {
 }
 
 
+int MetaDB::Rename(uint64_t pino, const char *name, uint64_t newpino, const char *newname) {
+
+    Transaction* txn = rocksdb_->BeginTransaction(write_options_, txn_options_);
+
+    //get for update old dentry: pino+name
+    int keylen = 0;
+    char keybuf[MAX_DENTRY_KEY_LEN] = {0};
+    EncodeDentryKey(pino, name, keybuf, &keylen);
+    std::string tmp; 
+    Status s = txn->GetForUpdate(read_options_, table_handles_[TABLE_DENTRY], Slice(keybuf, keylen), &tmp);
+    if (s.IsNotFound()) {
+        txn->Rollback();
+        return RET_OK;
+    }
+    uint64_t ino = *(uint64_t*)tmp.data();
+
+    //get for update old pinode:
+    struct InodeAttr pino_inoattr = {0};
+    s = txn->GetForUpdate(read_options_, table_handles_[TABLE_INODE], Slice((char*)&pino, sizeof(pino)), &tmp);
+    if (!s.ok()) {
+        txn->Rollback();
+        return RET_ERR;
+    }
+    memcpy(&pino_inoattr, tmp.data(), tmp.size());
+
+    //get for update new dentry: newpino + newname
+    int new_keylen = 0;
+    char new_keybuf[MAX_DENTRY_KEY_LEN] = {0};
+    EncodeDentryKey(newpino, newname, new_keybuf, &new_keylen);
+    s = txn->GetForUpdate(read_options_, table_handles_[TABLE_DENTRY], Slice(new_keybuf, new_keylen), &tmp);
+    if (!s.IsNotFound()) {
+        txn->Rollback();
+        return RET_EEXIST;
+    }
+
+    //get for update new pinode:
+    struct InodeAttr newpino_inoattr = {0};
+    s = txn->GetForUpdate(read_options_, table_handles_[TABLE_INODE], Slice((char*)&newpino, sizeof(newpino)), &tmp);
+    if (!s.ok()) {
+        txn->Rollback();
+        return RET_ERR;
+    }
+    memcpy(&newpino_inoattr, tmp.data(), tmp.size());
 
 
+    //TODO: wrapper in funciton process later
+    struct timespec curtime;
+    clock_gettime(CLOCK_REALTIME, &curtime);
 
+    struct InodeAttr inoattr = {0};
+    s = txn->Get(read_options_, table_handles_[TABLE_INODE], Slice((char*)&ino, sizeof(ino)), &tmp);
+    if (!s.ok()) {
+        txn->Rollback();
+        return RET_ERR;
+    }
+    memcpy(&inoattr, tmp.data(), tmp.size());
+
+
+    //delete old dentry and insert new dentry;
+    txn->Delete(table_handles_[TABLE_DENTRY], Slice(keybuf, keylen));
+    txn->Put(table_handles_[TABLE_DENTRY], Slice(new_keybuf, new_keylen), Slice((char*)&ino, sizeof(ino)));
+
+    //update oldpino and newpino attr
+    pino_inoattr.ctime = curtime;
+    pino_inoattr.mtime = curtime;
+    newpino_inoattr.ctime = curtime;
+    newpino_inoattr.mtime = curtime;
+    if (S_ISDIR(inoattr.mode)) {
+        pino_inoattr.nlink--;
+        newpino_inoattr.nlink++;
+    }
+    txn->Put(table_handles_[TABLE_INODE], Slice((char*)&pino, sizeof(pino)), Slice((char*)&pino_inoattr, sizeof(pino_inoattr)));
+    txn->Put(table_handles_[TABLE_INODE], Slice((char*)&newpino, sizeof(newpino)), Slice((char*)&newpino_inoattr, sizeof(newpino_inoattr)));
+
+    s = txn->Commit();
+    if (!s.ok()) {
+        txn->Rollback();
+        return RET_ERR;
+    }
+    delete txn;
+
+    return RET_OK;
+
+}
+
+void MetaDB::RunBgTask() {
+    
+    uint64_t ino = 0;
+    struct InodeAttr inoattr = {0};
+    rocksdb::Iterator *iter = rocksdb_->NewIterator(read_options_, table_handles_[TABLE_TRASH]);
+    iter->Seek(Slice((char*)&ino, sizeof(ino)));
+    while (iter->Valid()) {
+        ino = *(uint64_t*)(iter->key().data());
+        char * valbuf = (char*)(iter->value().data());
+        int vallen = iter->value().size();
+        memcpy(&inoattr, valbuf, vallen);
+        //delete file data
+        pmeta_->DeleteFile(ino, inoattr.size);
+        //delete file meta in transh
+        rocksdb_->Delete(write_options_, table_handles_[TABLE_TRASH], iter->key());
+
+        iter->Next();
+    }
+}
 
 
 

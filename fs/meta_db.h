@@ -12,6 +12,7 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/utilities/transaction_db.h"
 
+
 #define SEQ_NAME_NAXLEN       32
 #define SEQ_UPPER_STRIDE      10000
 #define SEQ_LOWWER_STRIDE     2000
@@ -37,6 +38,7 @@ using rocksdb::Transaction;
 
 
 class MetaDB;
+
 class SeqAllocator {
 public:
     SeqAllocator() {
@@ -60,6 +62,7 @@ private:
 //actually here should be a base MetaDB class,
 //implementation of different KVDB should be inherit from base class
 //leave to finish
+class Meta;
 
 class MetaDB {
 
@@ -72,7 +75,7 @@ public:
     };
     MetaDB();
     ~MetaDB();
-    void InitMetaDB();
+    void InitMetaDB(Meta *pmeta);
     void CloseMetaDB();
 
 public:
@@ -91,6 +94,10 @@ public:
 
     int Unlink(uint64_t pino, const char *name);
     int Rmdir(uint64_t pino, const char *name, bool should_empty);
+    int Rename(uint64_t pino, const char *name, uint64_t newpino, const char *newname);
+
+public:
+    void RunBgTask();
 
 private:
     void InitRootDirInode();
@@ -113,7 +120,9 @@ private:
     TransactionDB *rocksdb_;
     std::vector<ColumnFamilyHandle*> table_handles_;
 
+private:
     SeqAllocator inode_allocator_;
+    Meta *pmeta_;
 
 };
 

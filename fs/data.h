@@ -13,6 +13,7 @@ public:
 public:
     int Read(uint64_t ino, uint64_t chunkid, uint64_t chunkoff, int chunklen, char *buf, bool *is_eof);
     int Write(uint64_t ino, uint64_t chunkid, uint64_t chunkoff, int chunklen, char *buf);
+    int Delete(uint64_t ino, uint64_t chunkid);
 
 private:
     std::string chunk_path_ = "/opt/cfs_meta_data/datastore/";

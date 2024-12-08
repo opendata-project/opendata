@@ -8,6 +8,7 @@
 
 #include <iostream>
 #include <fstream>
+#include <pthread.h>
 #include "cfs_fuse.h"
 #include "../util/log.h"
 #include "cfs.h"
@@ -15,7 +16,18 @@
 extern Cfs g_cfs_instance;
 
 
+void* BgThreadSvc(void *arg) {
 
+    pthread_t tid = pthread_self();
+    SPDLOG_INFO("Background thread: tid={}", tid);
+
+    bool runnning_flag = *(bool*)arg;
+    while (runnning_flag) {
+        sleep(10);
+        g_cfs_instance.CfsRunBgTask();
+    }
+    return NULL;
+}
 
 
 int main(int argc, char *argv[]) {
@@ -27,15 +39,23 @@ int main(int argc, char *argv[]) {
     InitLogUtil();
     g_cfs_instance.Init();
     SPDLOG_DEBUG("fsd init finish.!");
-    
-    int ret =  cfs_fuse_mainloop(argc, argv);
 
-    /* NFS and s3 gateway coming soon*/
+    //create background thread:
+    pthread_t tid;
+    bool running_flag = true;
+    pthread_create(&tid, NULL, BgThreadSvc, &running_flag);
+    
+
+    int ret =  cfs_fuse_mainloop(argc, argv);
     //cfs_nfs_mainloop(argc, argv);
     //cfs_cifs_mainloop(argc, argv);
     //cfs_s3gw_mainloop(argc, argv);
 
-    //fout.close();
+
+    //join background thread:
+    running_flag = false;
+    pthread_join(tid, NULL);
+
     return 0;
 
 }

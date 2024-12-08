@@ -289,7 +289,7 @@ size_t fill_fuse_direntry_plus(fuse_req_t req, char *buf, size_t bufsize,
 
 void cfs_fuse_readdirplus (fuse_req_t req, fuse_ino_t ino, size_t size, off_t off,
 			 struct fuse_file_info *fi) {
-	SPDLOG_INFO("Enter cfs_fuse_readdirplus: ino={}, size={}, off={}", ino, size, off);
+	SPDLOG_DEBUG("Enter cfs_fuse_readdirplus: ino={}, size={}, off={}", ino, size, off);
 	if (off == CFS_EOF) {
 		fuse_reply_buf(req, NULL, 0);		//means EOF of directory
 		return;
@@ -539,6 +539,20 @@ void cfs_fuse_write (fuse_req_t req, fuse_ino_t ino, const char *buf,
 		fuse_reply_err(req,EINVAL);
 	}
 	fuse_reply_write(req, cnt);
+}
+
+
+
+void cfs_fuse_rename (fuse_req_t req, fuse_ino_t parent, const char *name,
+			fuse_ino_t newparent, const char *newname,
+			unsigned int flags) {
+	SPDLOG_DEBUG("Enter cfs_fuse_rename: parent={}, name={}, newparent={}, newname={}", parent, name, newparent, newname);
+	int ret = g_cfs_instance.CfsRename(parent, name, newparent, newname);
+	if (ret != RET_OK) {
+		//print some error.
+		// fuse_reply_err(req, EINVAL);
+	}
+	fuse_reply_err(req, 0);
 }
 
 

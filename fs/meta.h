@@ -8,13 +8,15 @@
 
 #include "meta_db.h"
 
+class Data;
+
 class Meta {
 private:
 
 public:
     Meta();
     ~Meta();
-    void Init();
+    void Init(Data *data);
     void Finish();
 
 public:
@@ -27,11 +29,15 @@ public:
     int Unlink(uint64_t pino, const char *name);
     int Rmdir(uint64_t pino, const char *name, bool should_emtpy);
 
+    int Rename(uint64_t pino, const char *name, uint64_t newpino, const char *newname);
+
+public:
+    void RunBgTask();
+    void DeleteFile(uint64_t ino, uint64_t length);
 
 private:
     MetaDB metadb_;
-
-
+    Data *pdata_;
 
 };
 
